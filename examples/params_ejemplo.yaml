@@ -44,3 +44,24 @@ compatibilidad_empaque:
   TrimF: ["Fresco", "Congelado"]
   Porc: ["Fresco", "Congelado"]
   BnP: ["Fresco", "Congelado"]
+
+# Peso relativo por producto (para el round-robin ponderado)
+pesos_producto:
+  HON: 2
+  TrimA: 1
+  TrimD: 1
+  TrimE: 1
+  TrimF: 1
+  Porc: 2
+  BnP: 1
+
+# Formato de caja preferido por producto
+formato_por_producto:
+  HON: "10lb"
+  TrimA: "10lb"
+  TrimD: "12lb"
+  TrimE: "12lb"
+  TrimF: "15lb"
+  Porc: "12lb"
+  BnP: "10lb"
+

@@ -1,10 +1,25 @@
 import pandas as pd
+from itertools import cycle
+
+def _build_product_cycle(params: dict):
+    # Si hay pesos_producto en el YAML, repetimos cada producto según su peso (enteros)
+    pesos = params.get("pesos_producto")
+    prods = list(params["formatos"])
+    if pesos and isinstance(pesos, dict):
+        pool = []
+        for p in prods:
+            w = int(pesos.get(p, 0))
+            if w > 0:
+                pool.extend([p] * w)
+        if pool:
+            return cycle(pool)
+    # Fallback: round-robin simple
+    return cycle(prods)
 
 def solve_plan(inputs_df: pd.DataFrame, params: dict) -> dict:
     """
-    Devuelve plan_df con columnas:
+    Retorna plan_df con:
     linea | empaque | producto | formato_caja | calibre | cajas | piezas
-    y 'usage' con % de uso por línea (para KPIs).
     """
     lineas = list(params["lineas"].keys())
     productos = params["formatos"]
@@ -17,7 +32,11 @@ def solve_plan(inputs_df: pd.DataFrame, params: dict) -> dict:
     min_pzs_por_caja = max(1, min(params["piezas_por_caja"].values()))
     cap_empaque_piezas = params["capacidad_empaque_cajas_h"] * h_tot * min_pzs_por_caja
 
-    formato_caja_def = params.get("formatos_caja", ["10lb"])[0]
+    # Mapa opcional formato por producto (si no existe, se usa el primero de formatos_caja)
+    formato_por_producto = params.get("formato_por_producto", {})
+    formato_caja_default = params.get("formatos_caja", ["10lb"])[0]
+
+    prod_cycle = _build_product_cycle(params)
 
     asignaciones = []
     uso_linea = {l: 0 for l in lineas}
@@ -48,15 +67,26 @@ def solve_plan(inputs_df: pd.DataFrame, params: dict) -> dict:
             if asignable <= 0:
                 continue
 
-            producto = productos[0]  # MVP: primer producto; luego podrás decidir producto por regla
-            # Elegir área de empaque compatible según prioridad de areas_pref
-            allowed = set(compat_emp.get(producto, areas_pref))
-            empaque = next((a for a in areas_pref if a in allowed), None)
-            if empaque is None:
-                # Si no hay área compatible, saltamos esta asignación
+            # Elegimos producto en round-robin hasta caer en uno que sea compatible con empaque
+            # y definimos el empaque según preferencias y compatibilidad
+            intentos = 0
+            producto = None
+            empaque = None
+            while intentos < len(productos):
+                candidato = next(prod_cycle)
+                permitidas = set(compat_emp.get(candidato, areas_pref))
+                elegido = next((a for a in areas_pref if a in permitidas), None)
+                if elegido is not None:
+                    producto = candidato
+                    empaque = elegido
+                    break
+                intentos += 1
+            if producto is None or empaque is None:
                 continue
 
-            asignaciones.append((l, empaque, producto, formato_caja_def, calibre, asignable))
+            formato_caja = formato_por_producto.get(producto, formato_caja_default)
+
+            asignaciones.append((l, empaque, producto, formato_caja, calibre, asignable))
             uso_linea[l] += asignable
             empaque_usado += asignable
 
@@ -65,27 +95,15 @@ def solve_plan(inputs_df: pd.DataFrame, params: dict) -> dict:
 
     if plan_df.empty:
         plan_df["cajas"] = []
-        return {
-            "plan_df": plan_df,
-            "usage": {l: 0.0 for l in lineas},
-            "notes": ["Sin asignaciones"]
-        }
+        return {"plan_df": plan_df, "usage": {l: 0.0 for l in lineas}, "notes": ["Sin asignaciones"]}
 
     piezas_por_caja = params["piezas_por_caja"]
-
-    def calc_cajas(r):
-        pxc = piezas_por_caja.get(r["producto"])
-        if not pxc or pxc <= 0:
-            raise ValueError(f"piezas_por_caja inválido para producto '{r['producto']}'.")
-        return max(0, r["piezas"] // pxc)
-
-    plan_df["cajas"] = plan_df.apply(calc_cajas, axis=1)
+    plan_df["cajas"] = plan_df.apply(
+        lambda r: max(0, r["piezas"] // max(1, piezas_por_caja.get(r["producto"], 1))),
+        axis=1
+    )
 
     uso_pct = {l: (100.0 * uso_linea[l] / max(1, cap_linea[l])) for l in lineas}
     plan_df = plan_df.sort_values(["linea","producto","calibre"]).reset_index(drop=True)
 
-    return {
-        "plan_df": plan_df,
-        "usage": {l: round(v, 1) for l, v in uso_pct.items()},
-        "notes": []
-    }
+    return {"plan_df": plan_df, "usage": {l: round(v, 1) for l, v in uso_pct.items()}, "notes": []}
