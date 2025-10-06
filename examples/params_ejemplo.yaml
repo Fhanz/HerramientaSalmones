@@ -1,61 +1,177 @@
-# Líneas de proceso (usa comillas en las numéricas para que sean llaves string)
+# =========================
+# Sets / Conjuntos (desde el .py)
+# =========================
+productos: ["HON","TrimA","TrimD","TrimE","TrimF","Porc","BnP"]
+formatos:  ["HON","TrimA","TrimD","TrimE","TrimF","Porc","BnP"]   # alias aceptado por loaders
+areas_empaque: ["Área 4","Fresco","Congelado"]
+formatos_caja: ["10lb","12lb","15lb","25lb","35lb","55lb","70lb"]
+
+# Índices de calibres usados en el .py (C=0..13) y su etiqueta
+C_map:
+  0: "1-2"
+  1: "2-3"
+  2: "3-4"
+  3: "4-5"
+  4: "5-6"
+  5: "6-7"
+  6: "7-8"
+  7: "8-9"
+  8: "9-10"
+  9: "10-11"
+  10: "11-12"
+  11: "12-13"
+  12: "13-14"
+  13: "14+"
+
+# (legacy GUI) Turnos/horas — no los usa el modelo gurobi, pero se conservan para compatibilidad
+turnos: 2
+horas_por_turno: 8
+
+# =========================
+# Capacidades (desde el .py)
+# =========================
+# Capacidad total por línea (mj) — piezas por horizonte
+mj:
+  "1": 9000
+  "2": 9000
+  "3": 9000
+  "Emparrillado": 1000000000
+
+# Capacidad total por área de empaque (ne) — piezas por horizonte
+ne:
+  "Área 4": 4050      # 2700*1.5
+  "Fresco": 5400      # 3600*1.5
+  "Congelado": 5400   # 3600*1.5
+
+# (legacy GUI) capacidades “por hora” para no romper loaders/app (no usadas por Gurobi)
 lineas:
   "1": {capacidad_piezas_h: 1200}
   "2": {capacidad_piezas_h: 900}
   "3": {capacidad_piezas_h: 700}
-  Emparrillado: {capacidad_piezas_h: 700}
+  "Emparrillado": {capacidad_piezas_h: 700}
 
-turnos: 2
-horas_por_turno: 8
+# =========================
+# Compatibilidades (desde bcj y fpe del .py)
+# =========================
+# bcj como listas por línea (equivalente a tus 1/0):
+# Línea 1: c ∈ {0,1,2} ; Línea 2: {2,3} ; Línea 3: {1,2,3} ; Emparrillado: {4..13}
+compatibilidad_indices:
+  "1":  [0,1,2]
+  "2":  [2,3]
+  "3":  [1,2,3]
+  "Emparrillado": [4,5,6,7,8,9,10,11,12,13]
 
-# Productos (antes llamados "formatos" en la versión vieja)
-productos: ["HON","TrimA","TrimD","TrimE","TrimF","Porc","BnP"]
-
-# Compatibilidad (calibres que puede procesar cada línea)
-compatibilidad:
-  "1": ["3-4","4-5","5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14+"]
-  "2": ["5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14+"]
-  "3": ["1-2","2-3","3-4","4-5","5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14+"]
-  Emparrillado: ["5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14+"]
-
-# Capacidad de empaque (cajas por hora totales del sistema)
-capacidad_empaque_cajas_h: 300
-
-# Piezas por caja por producto (para calcular n° de cajas)
-piezas_por_caja:
-  HON: 20
-  TrimA: 20
-  TrimD: 20
-  TrimE: 20
-  TrimF: 20
-  Porc: 30
-  BnP: 15
-
-# Formatos de caja y áreas de empaque (para mostrar en la tabla)
-formatos_caja: ["10lb","12lb","15lb","25lb","35lb","55lb","70lb"]
-areas_empaque: ["Área 4","Fresco","Congelado"]
-
-# Compatibilidad (productos que puede empacar cada zona)
+# Compatibilidad empaque fpe como listas por producto
 compatibilidad_empaque:
-  HON: ["Área 4", "Congelado"]
-  TrimA: ["Fresco", "Congelado"]
-  TrimD: ["Fresco", "Congelado"]
-  TrimE: ["Fresco", "Congelado"]
-  TrimF: ["Fresco", "Congelado"]
-  Porc: ["Fresco", "Congelado"]
-  BnP: ["Fresco", "Congelado"]
+  HON:   ["Área 4","Congelado"]
+  TrimA: ["Fresco","Congelado"]
+  TrimD: ["Fresco","Congelado"]
+  TrimE: ["Fresco","Congelado"]
+  TrimF: ["Fresco","Congelado"]
+  Porc:  ["Fresco","Congelado"]
+  BnP:   ["Fresco","Congelado"]
 
-# Peso relativo por producto (para el round-robin ponderado)
-pesos_producto:
-  HON: 2
-  TrimA: 1
-  TrimD: 1
-  TrimE: 1
-  TrimF: 1
-  Porc: 2
+# =========================
+# Parámetros técnicos (desde el .py)
+# =========================
+# Piezas por caja por producto (sp) — en tu modelo es “piezas que aporta un salmón al producto p”
+sp:
+  HON: 1
+  TrimA: 2
+  TrimD: 2
+  TrimE: 2
+  TrimF: 2
+  Porc: 9
+  BnP: 9
+
+# Rendimientos por producto (yp)
+yp:
+  HON: 1.00
+  TrimA: 0.92
+  TrimD: 0.90
+  TrimE: 0.88
+  TrimF: 0.86
+  Porc: 1.00
+  BnP: 1.00
+
+# Prioridad por producto (qp)
+qp:
+  HON: 6
+  TrimA: 3
+  TrimD: 7
+  TrimE: 5
+  TrimF: 2
+  Porc: 4
   BnP: 1
 
-# Formato de caja preferido por producto
+# Precios por caja rpk[p,k]
+rpk:
+  HON:   {"10lb": 42000, "12lb": 51000, "15lb": 57000, "25lb": 87000, "35lb": 150000, "55lb": 230000, "70lb": 300000}
+  TrimA: {"10lb": 45000, "12lb": 54000, "15lb": 60000, "25lb": 92000, "35lb": 160000, "55lb": 245000, "70lb": 320000}
+  TrimD: {"10lb": 48000, "12lb": 57000, "15lb": 63000, "25lb": 97000, "35lb": 170000, "55lb": 260000, "70lb": 340000}
+  TrimE: {"10lb": 51000, "12lb": 60000, "15lb": 66000, "25lb": 102000, "35lb": 180000, "55lb": 275000, "70lb": 360000}
+  TrimF: {"10lb": 54000, "12lb": 63000, "15lb": 69000, "25lb": 107000, "35lb": 190000, "55lb": 290000, "70lb": 380000}
+  Porc:  {"10lb": 57000, "12lb": 66000, "15lb": 72000, "25lb": 112000, "35lb": 200000, "55lb": 305000, "70lb": 400000}
+  BnP:   {"10lb": 60000, "12lb": 69000, "15lb": 75000, "25lb": 117000, "35lb": 210000, "55lb": 320000, "70lb": 420000}
+
+# Peso promedio por calibre wc[c] (índices 0..13)
+wc:
+  0: 1.5
+  1: 2.5
+  2: 3.5
+  3: 4.5
+  4: 5.5
+  5: 6.5
+  6: 7.5
+  7: 8.5
+  8: 9.5
+  9: 10.5
+  10: 11.5
+  11: 12.5
+  12: 13.5
+  13: 14.5
+
+# Capacidad/cantidad de piezas que caben en caja ukc[k][c] (derivado en tu .py)
+# (lo dejamos explícito para “defaults idénticos”)
+ukc:
+  "10lb": {0: 6, 1: 4, 2: 2, 3: 2, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 0, 10: 0, 11: 0, 12: 0, 13: 0}
+  "12lb": {0: 8, 1: 4, 2: 3, 3: 2, 4: 2, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 0, 12: 0, 13: 0}
+  "15lb": {0: 10, 1: 6, 2: 4, 3: 3, 4: 2, 5: 2, 6: 2, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1, 12: 1, 13: 0}
+  "25lb": {0: 16, 1: 10, 2: 7, 3: 5, 4: 4, 5: 3, 6: 3, 7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 1, 13: 1}
+  "35lb": {0: 23, 1: 14, 2: 10, 3: 7, 4: 6, 5: 5, 6: 4, 7: 4, 8: 3, 9: 3, 10: 3, 11: 2, 12: 2, 13: 2}
+  "55lb": {0: 36, 1: 22, 2: 15, 3: 12, 4: 10, 5: 8, 6: 7, 7: 6, 8: 5, 9: 5, 10: 4, 11: 4, 12: 4, 13: 3}
+  "70lb": {0: 46, 1: 28, 2: 20, 3: 15, 4: 12, 5: 10, 6: 9, 7: 8, 8: 7, 9: 6, 10: 6, 11: 5, 12: 5, 13: 4}
+
+# =========================
+# Disponibilidad de salmones por calibre (ac[c]) — desde tu .py
+# =========================
+ac:
+  0: 521
+  1: 4232
+  2: 7150
+  3: 2943
+  4: 959
+  5: 959
+  6: 959
+  7: 959
+  8: 959
+  9: 959
+  10: 959
+  11: 959
+  12: 959
+  13: 959
+
+# =========================
+# Ajustes GUI / compatibilidad
+# =========================
+# Compatibilidad por etiqueta de calibre (para vistas antiguas de la GUI si se usaran):
+compatibilidad:
+  "1":  ["1-2","2-3","3-4"]
+  "2":  ["3-4","4-5"]
+  "3":  ["2-3","3-4","4-5"]
+  "Emparrillado": ["5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14+"]
+
+# (opcional, solo para GUI)
 formato_por_producto:
   HON: "10lb"
   TrimA: "10lb"
@@ -64,4 +180,3 @@ formato_por_producto:
   TrimF: "15lb"
   Porc: "12lb"
   BnP: "10lb"
-
