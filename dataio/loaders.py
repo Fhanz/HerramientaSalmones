@@ -1,118 +1,98 @@
 import pandas as pd, yaml
 from pathlib import Path
 import csv
+from typing import Dict, Any, Tuple
 
-# --- Nuevo: mapa por defecto para el editor de calibres ---
-C_MAP_DEFAULT = {
+# =========================
+# Calibres
+# =========================
+C_MAP_DEFAULT: Dict[int, str] = {
     0: "1-2", 1: "2-3", 2: "3-4", 3: "4-5", 4: "5-6",
     5: "6-7", 6: "7-8", 7: "8-9", 8: "9-10", 9: "10-11",
     10: "11-12", 11: "12-13", 12: "13-14", 13: "14+"
 }
 
-# --- Nuevo: utilitario para completar/fijar orden del mapa ---
-def _normalize_cmap(cmap: dict) -> dict:
-    """Asegura claves 0..13 y orden por índice; completa faltantes con default."""
-    fixed = dict(C_MAP_DEFAULT)  # copia
-    if cmap:
-        for k, v in cmap.items():
-            try:
-                ki = int(k)
-            except Exception:
-                continue
-            if ki in fixed and isinstance(v, str) and v.strip():
-                fixed[ki] = v.strip()
-    # ordenar por índice
-    return dict(sorted(fixed.items(), key=lambda kv: kv[0]))
+def _normalize_cmap(cmap: Dict[int, str] | Dict[str, str] | None) -> Dict[int, str]:
+    """Devuelve un C_map con claves enteras 0..13 y etiquetas válidas."""
+    base = dict(C_MAP_DEFAULT)
+    if not isinstance(cmap, dict):
+        return base
+    # normaliza claves a int
+    for k, v in cmap.items():
+        try:
+            ki = int(k)
+        except Exception:
+            continue
+        if 0 <= ki <= 13 and isinstance(v, str) and v.strip():
+            base[ki] = v.strip()
+    return dict(sorted(base.items(), key=lambda kv: kv[0]))
 
-# --- Nuevo: helpers de demanda ---
-def _to_idx_from_label(label: str, c_map: dict) -> int:
-    """Convierte '7-8'→7 usando C_map; si ya es int/str-int, retorna int."""
-    try:
-        return int(label)
-    except Exception:
-        inv = {v: k for k, v in c_map.items()}
-        if label in inv:
-            return inv[label]
-        raise ValueError(f"Calibre inválido: {label}")
+def _to_idx_from_label(label: str, cmap: Dict[int, str]) -> int:
+    inv = {v: k for k, v in cmap.items()}
+    lab = str(label).strip()
+    if lab in inv:
+        return inv[lab]
+    # intenta interpretar "10-11" -> buscar exacto sin espacios
+    lab2 = lab.replace(" ", "")
+    inv2 = {v.replace(" ", ""): k for k, v in cmap.items()}
+    if lab2 in inv2:
+        return inv2[lab2]
+    raise ValueError(f"Etiqueta de calibre '{label}' no existe en C_map.")
 
-def _to_label_from_idx(idx: int, c_map: dict) -> str:
-    """Convierte 7→'7-8' usando C_map."""
-    try:
-        return c_map[int(idx)]
-    except Exception:
-        raise ValueError(f"Índice de calibre inválido: {idx}")
-
-# --- Nuevo: cargar/guardar CSV de calibres (idx, etiqueta) ---
-def load_calibres_map(csv_path: str | Path) -> dict:
-    """
-    Lee un CSV con encabezado: idx,etiqueta
-    Si no existe o está incompleto, devuelve C_MAP_DEFAULT completando faltantes.
-    """
+# =========================
+# Calibres map (csv util)
+# =========================
+def load_calibres_map(csv_path: str | Path | None) -> Dict[int, str]:
+    """Lee CSV idx,etiqueta; si falta vuelve a default."""
     if not csv_path:
-        # si no te pasan ruta, retorna default para no romper UI
         return dict(C_MAP_DEFAULT)
-    csv_path = Path(csv_path)
-    if not csv_path.exists():
+    p = Path(csv_path)
+    if not p.exists():
         return dict(C_MAP_DEFAULT)
-
-    cmap: dict[int, str] = {}
-    with csv_path.open("r", newline="", encoding="utf-8") as f:
+    cmap: Dict[int, str] = {}
+    with p.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
-        # soporta nombres de columnas con espacios/blancos
-        cols = [c.strip().lower() for c in (reader.fieldnames or [])]
-        # tolera variantes: "idx"/"index" y "etiqueta"/"label"
-        try:
-            i_idx = cols.index("idx") if "idx" in cols else cols.index("index")
-        except ValueError:
-            i_idx = None
-        try:
-            i_lab = cols.index("etiqueta") if "etiqueta" in cols else cols.index("label")
-        except ValueError:
-            i_lab = None
         for row in reader:
-            if i_idx is None or i_lab is None:
-                break
-            keys = list(row.keys())
-            k = keys[i_idx]; v = keys[i_lab]  # nombres originales
-            try:
-                idx = int(row[k])
-            except Exception:
-                continue
-            etiqueta = (row[v] or "").strip()
-            if etiqueta:
-                cmap[idx] = etiqueta
+            if "idx" in row and "etiqueta" in row and str(row["idx"]).strip() != "":
+                try:
+                    idx = int(row["idx"])
+                except Exception:
+                    continue
+                cmap[idx] = str(row["etiqueta"]).strip()
     return _normalize_cmap(cmap)
 
-def save_calibres_map(cmap: dict, csv_path: str | Path) -> None:
-    """
-    Escribe un CSV con encabezado: idx,etiqueta
-    (Crea directorios si no existen)
-    """
-    csv_path = Path(csv_path)
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    cmap = _normalize_cmap(cmap)
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
+def save_calibres_map(csv_path: str | Path, cmap: Dict[int, str]) -> None:
+    p = Path(csv_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["idx", "etiqueta"])
         writer.writeheader()
-        for idx, etiqueta in cmap.items():
+        for idx, etiqueta in _normalize_cmap(cmap).items():
             writer.writerow({"idx": idx, "etiqueta": etiqueta})
 
-# --- NUEVO: Cargar Demanda desde xlsx/csv (simple o detallada) ---
+# =========================
+# Demand / Availability loaders
+# =========================
 def load_demand(path: str | Path, params: dict) -> pd.DataFrame:
     """
-    Acepta .xlsx/.xls o .csv en dos esquemas:
+    Lee un Excel/CSV de demanda.
+    - Si el archivo contiene columnas de DEMANDA por (producto, formato, calibre|calibre_idx, demanda_cajas),
+      entonces se calcula params['dpkc'] y se retorna un DataFrame vacío (para no tocar 'ac').
+    - Si el archivo contiene columnas de DISPONIBILIDAD (calibre, salmones|piezas),
+      se retorna ese DataFrame para que el optimizador pueda leer 'ac' desde GUI/pipeline.
 
-    A) simple:    calibre, piezas
-    B) detallado: producto, formato, calibre_idx|calibre, demanda_cajas
-       -> convierte a calibre,piezas usando ukc y C_map del YAML.
+    Columnas DEMANDA esperadas (insensible a mayúsculas):
+      producto | formato | (calibre_idx OR calibre) | demanda_cajas
 
-    Retorna DataFrame con columnas: calibre, piezas (agrupado y validado).
+    Columnas DISPONIBILIDAD esperadas (insensible a mayúsculas):
+      calibre | salmones  (recomendado)
+      calibre | piezas    (se aceptará pero NO se usará para 'ac' en optimizer, solo para continuidad)
     """
     if not path:
-        raise ValueError("Debes seleccionar archivo de demanda.")
+        raise ValueError("Debes seleccionar archivo de demanda / disponibilidad.")
     p = Path(path)
     if not p.exists():
-        raise ValueError(f"No existe el archivo de demanda: {p}")
+        raise ValueError(f"No existe el archivo: {p}")
 
     ext = p.suffix.lower()
     if ext in (".xlsx", ".xls"):
@@ -120,137 +100,173 @@ def load_demand(path: str | Path, params: dict) -> pd.DataFrame:
     elif ext == ".csv":
         df = pd.read_csv(p)
     else:
-        raise ValueError("Formato de demanda no soportado (usa .xlsx, .xls o .csv).")
+        raise ValueError("Formato no soportado (usa .xlsx, .xls o .csv).")
 
-    if df.empty:
-        raise ValueError("El archivo de demanda está vacío.")
-
+    # normaliza encabezados
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # Esquema A: simple calibre,piezas
-    if {"calibre", "piezas"}.issubset(df.columns):
-        out = df.copy()
-        out["calibre"] = out["calibre"].astype(str).str.strip()
-        out["piezas"] = pd.to_numeric(out["piezas"], errors="coerce").fillna(0).astype(int)
-        if (out["piezas"] < 0).any():
-            raise ValueError("Hay piezas negativas en el archivo de demanda.")
-        out = out.groupby("calibre", as_index=False)["piezas"].sum()
-        return out
-
-    # Esquema B: detallado producto, formato, calibre_idx|calibre, demanda_cajas
-    need_base = {"producto", "formato", "demanda_cajas"}
-    if need_base.issubset(df.columns) and ("calibre_idx" in df.columns or "calibre" in df.columns):
-        ukc = params.get("ukc", {})
-        if not ukc:
-            raise ValueError("Falta 'ukc' en parámetros YAML para convertir demanda en cajas→piezas.")
-        c_map = params.get("C_map", C_MAP_DEFAULT)
-
-        # Normaliza calibre_idx
+    # Detecta DEMANDA detallada
+    if {"producto","formato","demanda_cajas"}.issubset(df.columns) and ("calibre_idx" in df.columns or "calibre" in df.columns):
+        c_map = _normalize_cmap(params.get("C_map"))
+        # asegurar calibre_idx
         if "calibre_idx" not in df.columns:
-            df["calibre_idx"] = df["calibre"].astype(str).str.strip().apply(lambda s: _to_idx_from_label(s, c_map))
-
-        # Validaciones básicas
+            df["calibre_idx"] = df["calibre"].astype(str).map(lambda s: _to_idx_from_label(s, c_map))
+        # normaliza tipos
+        df["producto"] = df["producto"].astype(str).str.strip()
+        df["formato"]  = df["formato"].astype(str).str.strip()
+        df["calibre_idx"] = pd.to_numeric(df["calibre_idx"], errors="coerce").astype("Int64")
         df["demanda_cajas"] = pd.to_numeric(df["demanda_cajas"], errors="coerce").fillna(0).astype(int)
-        if (df["demanda_cajas"] < 0).any():
-            raise ValueError("Hay demanda_cajas negativas en el archivo de demanda.")
 
-        # Chequeo de formato y calibre_idx en ukc
-        # (lanza error claro si falta alguna combinación)
-        for i, row in df.iterrows():
-            k = str(row["formato"])
-            cidx = int(row["calibre_idx"])
-            if k not in ukc:
-                raise ValueError(f"Formato desconocido en demanda: '{k}'. No está en ukc del YAML.")
-            if cidx not in ukc[k]:
-                raise ValueError(f"calibre_idx={cidx} no válido para formato '{k}' según ukc del YAML.")
+        # agrega y guarda en params['dpkc']
+        dpkc: Dict[tuple[str,str,int], float] = {}
+        g = df.groupby(["producto","formato","calibre_idx"], dropna=True)["demanda_cajas"].sum().reset_index()
+        for _, r in g.iterrows():
+            p_, k_, c_ = str(r["producto"]), str(r["formato"]), int(r["calibre_idx"])
+            dpkc[(p_, k_, c_)] = float(int(r["demanda_cajas"]))
+        params["dpkc"] = dpkc
+        # devolver DF vacío para no interferir con 'ac' (lo da el GUI)
+        return pd.DataFrame()
 
-        # piezas = demanda_cajas * ukc[formato][calibre_idx]
-        df["piezas"] = df.apply(lambda r: int(r["demanda_cajas"]) * int(ukc[str(r["formato"])][int(r["calibre_idx"])]), axis=1)
+    # Detecta DISPONIBILIDAD simple
+    if "calibre" in df.columns and ("salmones" in df.columns or "piezas" in df.columns):
+        # se usa tal cual; optimizer decidirá si lo ocupa o ignora
+        return df.copy()
 
-        # Convertir calibre_idx -> etiqueta según C_map
-        etiqueta = {int(k): v for k, v in (c_map.items() if isinstance(c_map, dict) else dict(C_MAP_DEFAULT).items())}
-        df["calibre"] = df["calibre_idx"].astype(int).map(etiqueta)
+    raise ValueError("No reconozco el esquema del archivo. Esperaba:\n"
+                     "  DEMANDA: producto, formato, (calibre_idx|calibre), demanda_cajas\n"
+                     "  o DISPONIBILIDAD: calibre, salmones|piezas")
 
-        out = df.groupby("calibre", as_index=False)["piezas"].sum()
-        return out
-
-    raise ValueError(
-        "Estructura de demanda no reconocida. Usa (calibre,piezas) o "
-        "(producto,formato,calibre_idx|calibre,demanda_cajas)."
-    )
-
-# --- EXISTENTE: no se toca ---
-def load_inputs(csv_path: str) -> pd.DataFrame:
+def load_inputs(csv_path: str | Path) -> pd.DataFrame:
+    """Lee disponibilidad simple (calibre,salmones|piezas) desde CSV/Excel para 'ac'."""
     if not csv_path:
-        raise ValueError("Debes seleccionar el CSV de calibres.")
-    df = pd.read_csv(csv_path)
-
+        return pd.DataFrame()
+    p = Path(csv_path)
+    if not p.exists():
+        raise ValueError(f"No existe el archivo: {p}")
+    ext = p.suffix.lower()
+    if ext in (".xlsx", ".xls"):
+        df = pd.read_excel(p)
+    elif ext == ".csv":
+        df = pd.read_csv(p)
+    else:
+        raise ValueError("Formato no soportado (usa .xlsx, .xls o .csv).")
     df.columns = [c.strip().lower() for c in df.columns]
-    for col in ("calibre", "piezas"):
-        if col not in df.columns:
-            raise ValueError(f"Falta columna '{col}' en {csv_path}")
+    if "calibre" not in df.columns:
+        raise ValueError("Falta columna 'calibre' en el archivo de disponibilidad.")
+    if "salmones" not in df.columns and "piezas" not in df.columns:
+        raise ValueError("Falta columna 'salmones' o 'piezas' en el archivo de disponibilidad.")
+    return df.copy()
 
-    df["calibre"] = df["calibre"].astype(str).str.strip()
-    df["piezas"] = pd.to_numeric(df["piezas"], errors="coerce").fillna(0).astype(int)
+# =========================
+# Params YAML
+# =========================
+REQUIRED_KEYS = [
+    "productos","lineas","areas_empaque","formatos_caja",
+    "ukc","wc","sp","yp","qp","rpk","mj","ne"
+]
 
-    if (df["piezas"] < 0).any():
-        raise ValueError("Hay piezas negativas en el CSV.")
-
-    df = df.groupby("calibre", as_index=False)["piezas"].sum()
-    return df
-
-def load_params(yaml_path: str) -> dict:
+def load_params(yaml_path: str | Path) -> dict:
     if not yaml_path:
         raise ValueError("Debes seleccionar el YAML de parámetros.")
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        params = yaml.safe_load(f)
+    with Path(yaml_path).open("r", encoding="utf-8") as f:
+        params: Dict[str, Any] = yaml.safe_load(f) or {}
 
-    # --- Compatibilidad con esquema nuevo (Gurobi) y viejo (dummy) ---
-    # Requeridos mínimos reales
+    # Backcompat: si viene 'formatos' en lugar de 'productos', copiar
+    if "productos" not in params and "formatos" in params and isinstance(params["formatos"], list):
+        params["productos"] = list(params["formatos"])
+
+    # Chequeos básicos
+    for k in ["productos","areas_empaque","formatos_caja"]:
+        if k not in params or not isinstance(params[k], list) or not params[k]:
+            raise ValueError(f"Falta '{k}' (lista no vacía) en YAML.")
     if "lineas" not in params or not isinstance(params["lineas"], dict) or not params["lineas"]:
-        raise ValueError("Falta 'lineas' (diccionario no vacío) en el YAML.")
+        raise ValueError("Falta 'lineas' (diccionario no vacío) en YAML.")
 
-    # formatos/productos
-    if "formatos" not in params:
-        if "productos" in params:
-            params["formatos"] = params["productos"]
-        else:
-            raise ValueError("Falta 'formatos' (o 'productos') en parámetros YAML.")
+    # Normaliza C_map
+    params["C_map"] = _normalize_cmap(params.get("C_map"))
 
-    # turnos/horas_por_turno → opcionales (dejan de ser hard-requeridos)
-    # Si están, se validan; si no, se asigna 1 para no romper nada en otros módulos.
-    t = params.get("turnos", 1)
-    h = params.get("horas_por_turno", 1)
-    try:
-        params["turnos"] = int(t)
-        params["horas_por_turno"] = int(h)
-        if params["turnos"] <= 0 or params["horas_por_turno"] <= 0:
-            raise ValueError
-    except Exception:
-        raise ValueError("turnos y horas_por_turno deben ser enteros > 0 si se especifican.")
+    # Normaliza tablas numéricas esperadas
+    def _as_float_dict(d: dict, name: str) -> Dict:
+        if not isinstance(d, dict) or not d:
+            raise ValueError(f"Falta '{name}' en YAML.")
+        return { (int(k) if isinstance(k, str) and k.isdigit() else k): float(v) for k, v in d.items() }
 
-    # Validación ligera de 'lineas' (capacidad_piezas_h solo si está)
-    for l, attrs in params["lineas"].items():
-        if not isinstance(attrs, dict):
-            raise ValueError(f"'lineas.{l}' debe ser un diccionario.")
-        # no exigimos 'capacidad_piezas_h' (el modelo real usa 'mj')
+    # ukc: dict formato -> dict calibre_idx -> int
+    if "ukc" not in params or not isinstance(params["ukc"], dict):
+        raise ValueError("Falta 'ukc' en YAML.")
+    ukc: Dict[str, Dict[int, int]] = {}
+    for k_fmt, row in params["ukc"].items():
+        if not isinstance(row, dict):
+            raise ValueError("Cada entrada de 'ukc' debe ser un dict calibre_idx->piezas.")
+        ukc[str(k_fmt)] = { int(ci): int(val) for ci, val in row.items() }
+    params["ukc"] = ukc
 
-    # Defaults GUI
-    params.setdefault("formatos_caja", ["10lb", "12lb", "15lb", "25lb", "35lb", "55lb", "70lb"])
-    params.setdefault("areas_empaque", ["Área 4", "Fresco", "Congelado"])
+    # wc: dict calibre_idx -> float
+    params["wc"] = { int(k): float(v) for k, v in params.get("wc", {}).items() }
 
-    # Compatibilidad empaque: si falta, permitir todas las áreas por producto
+    # sp/yp/qp: dict producto -> float
+    for name in ["sp","yp","qp"]:
+        if name not in params or not isinstance(params[name], dict):
+            raise ValueError(f"Falta '{name}' en YAML.")
+        params[name] = { str(p): float(v) for p, v in params[name].items() }
+
+    # rpk: producto -> { formato -> precio }
+    if "rpk" not in params or not isinstance(params["rpk"], dict):
+        raise ValueError("Falta 'rpk' en YAML.")
+    params["rpk"] = { str(p): { str(k): float(v) for k, v in row.items() } for p, row in params["rpk"].items() }
+
+    # capacidades
+    if "mj" not in params or not isinstance(params["mj"], dict):
+        raise ValueError("Falta 'mj' (capacidad por línea) en YAML.")
+    params["mj"] = { str(j): float(v) for j, v in params["mj"].items() }
+
+    if "ne" not in params or not isinstance(params["ne"], dict):
+        raise ValueError("Falta 'ne' (capacidad por área) en YAML.")
+    params["ne"] = { str(e): float(v) for e, v in params["ne"].items() }
+
+    # Compatibilidad calibre–línea: aceptar 'bcj', o 'compatibilidad_indices' (lista), o 'compatibilidad' por etiqueta
+    bcj_map: Dict[Tuple[int,str], int] = {}
+    if "bcj" in params and isinstance(params["bcj"], dict) and params["bcj"]:
+        for key, val in params["bcj"].items():
+            if isinstance(key, str) and "," in key:
+                c_str, j = key.split(",", 1)
+                c = int(c_str.strip())
+                bcj_map[(c, str(j).strip())] = int(val)
+            elif isinstance(key, (tuple, list)) and len(key) == 2:
+                c, j = key
+                bcj_map[(int(c), str(j))] = int(val)
+    elif "compatibilidad_indices" in params and isinstance(params["compatibilidad_indices"], dict):
+        for j, lst in params["compatibilidad_indices"].items():
+            for c in lst:
+                bcj_map[(int(c), str(j))] = 1
+    elif "compatibilidad" in params and isinstance(params["compatibilidad"], dict):
+        inv = {v: k for k, v in params["C_map"].items()}
+        for j, labels in params["compatibilidad"].items():
+            for lab in labels:
+                if lab not in inv:
+                    raise ValueError(f"Etiqueta de calibre '{lab}' en compatibilidad no existe en C_map.")
+                bcj_map[(int(inv[lab]), str(j))] = 1
+    if bcj_map:
+        params["bcj"] = { f"{c},{j}": int(v) for (c,j), v in bcj_map.items() }
+
+    # Compatibilidad producto–empaque
     compat_emp = params.get("compatibilidad_empaque")
     if compat_emp is None:
-        compat_emp = {p: list(params["areas_empaque"]) for p in params["formatos"]}
-        params["compatibilidad_empaque"] = compat_emp
+        # por defecto: todo permitido
+        params["compatibilidad_empaque"] = { str(p): list(params["areas_empaque"]) for p in params["productos"] }
     else:
-        for p in params["formatos"]:
-            if p not in compat_emp:
-                raise ValueError(f"Falta compatibilidad_empaque para el producto '{p}'.")
-            invalid = [a for a in compat_emp[p] if a not in params["areas_empaque"]]
-            if invalid:
-                raise ValueError(f"Áreas de empaque inválidas para '{p}': {invalid}. Deben estar en areas_empaque.")
+        fixed = {}
+        for p_ in params["productos"]:
+            if p_ not in compat_emp:
+                raise ValueError(f"Falta compatibilidad_empaque para el producto '{p_}'.")
+            fixed[str(p_)] = [str(e) for e in compat_emp[p_] if e in params["areas_empaque"]]
+            if len(fixed[str(p_)]) != len(compat_emp[p_]):
+                invalid = [e for e in compat_emp[p_] if e not in params["areas_empaque"]]
+                raise ValueError(f"Áreas de empaque inválidas para '{p_}': {invalid}.")
+        params["compatibilidad_empaque"] = fixed
 
-    # NO volver a exigir 'capacidad_empaque_cajas_h' (se usa 'ne' en el modelo real)
+    # Nunca usar 'ac' ni 'dpkc' desde YAML (vienen de GUI/Excel)
+    params.pop("ac", None)
+    params.pop("dpkc", None)
+
     return params
