@@ -3,14 +3,14 @@ import os
 from pathlib import Path
 import pandas as pd
 import plotly.io as pio
-import PySimpleGUI as sg
+import tkinter as tk
+from tkinter import messagebox
 
 
 def _safe_to_excel(writer: pd.ExcelWriter, df: pd.DataFrame, sheet: str) -> None:
     """Escribe un DataFrame a Excel siempre con columnas aunque esté vacío."""
     if df is None:
         df = pd.DataFrame()
-    # Evita escribir índices y fuerza DataFrame aunque sea vacío
     (df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame(df)).to_excel(
         writer, sheet_name=sheet, index=False
     )
@@ -37,23 +37,26 @@ def _make_resumen(plan_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         }
 
     def agg(df: pd.DataFrame, key: str, label: str) -> pd.DataFrame:
-        g = (df.groupby(key, dropna=False)[["piezas", "cajas"]]
-               .sum()
-               .reset_index()
-               .rename(columns={
-                   key: label,
-                   "piezas": "N° de piezas",
-                   "cajas": "N° de cajas",
-               }))
-        # Ordena por piezas desc
+        g = (
+            df.groupby(key, dropna=False)[["piezas", "cajas"]]
+            .sum()
+            .reset_index()
+            .rename(
+                columns={
+                    key: label,
+                    "piezas": "N° de piezas",
+                    "cajas": "N° de cajas",
+                }
+            )
+        )
         return g.sort_values(by="N° de piezas", ascending=False, ignore_index=True)
 
     resumen = {
-        "por_linea":    agg(plan_df, "linea", "Línea"),
-        "por_empaque":  agg(plan_df, "empaque", "Empaque"),
+        "por_linea": agg(plan_df, "linea", "Línea"),
+        "por_empaque": agg(plan_df, "empaque", "Empaque"),
         "por_producto": agg(plan_df, "producto", "Producto"),
-        "por_formato":  agg(plan_df, "formato_caja", "Formato caja"),
-        "por_calibre":  agg(plan_df, "calibre", "Calibre"),
+        "por_formato": agg(plan_df, "formato_caja", "Formato caja"),
+        "por_calibre": agg(plan_df, "calibre", "Calibre"),
     }
     return resumen
 
@@ -72,36 +75,30 @@ def export_excel(outputs: dict, path: str) -> str:
     notes = outputs.get("notes", [])
     usage = outputs.get("usage", {}) or {}
 
-    # Asegura extensión .xlsx
     path = str(path)
     if not path.lower().endswith(".xlsx"):
         path += ".xlsx"
 
-    # Construye resúmenes
     resumen = _make_resumen(plan_df)
 
-    # Escribir
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
-        # 1) Hoja de planificación (detalle)
         _safe_to_excel(xw, plan_df, "Planificacion")
 
-        # 2) Hoja Resumen (varias sub-hojas)
         for name, df in resumen.items():
-            sheet_name = f"Resumen_{name.replace('por_','')}"
+            sheet_name = f"Resumen_{name.replace('por_', '')}"
             _safe_to_excel(xw, df, sheet_name)
 
-        # 3) Hoja de KPIs (texto)
         kpi_lines = (kpis_text or "").splitlines()
         kpi_df = pd.DataFrame({"KPIs": kpi_lines})
         _safe_to_excel(xw, kpi_df, "KPIs")
 
-        # 4) Hoja de uso de líneas (si nos pasaron 'usage')
         if usage:
-            usage_df = (pd.DataFrame(list(usage.items()), columns=["Línea", "Uso %"])
-                        .sort_values(by="Línea"))
+            usage_df = (
+                pd.DataFrame(list(usage.items()), columns=["Línea", "Uso %"])
+                .sort_values(by="Línea")
+            )
             _safe_to_excel(xw, usage_df, "Uso_lineas")
 
-        # 5) Hoja de notas (si existieran)
         if notes:
             notas_df = pd.DataFrame({"Notas": notes})
             _safe_to_excel(xw, notas_df, "Notas")
@@ -119,11 +116,11 @@ def export_pngs(figs: dict, outdir: str) -> list[str]:
     for name, fig in (figs or {}).items():
         try:
             outpath = os.path.join(outdir, f"{name}.png")
-            # scale=2 para mejor nitidez en informes
             pio.write_image(fig, outpath, scale=2)
             exported.append(outpath)
         except Exception as e:
-            # Falla típica: RuntimeError: Image export using the "kaleido" engine requires the kaleido package,
-            # solución: pip install -U kaleido
-            sg.popup_error(f"No se pudo exportar el gráfico '{name}': {e}")
+            messagebox.showerror(
+                "Error al exportar gráfico",
+                f"No se pudo exportar el gráfico '{name}': {e}",
+            )
     return exported
